@@ -35,7 +35,7 @@ float movingAverageFilter(struct MovingAverage *data, float newValue)
   return (float)data->average;
 }
 
-void cleanMovingAverageHistory(strunct MovingAverage *data)
+void cleanMovingAverageHistory(struct MovingAverage *data)
 {
   for (int i = 0; i <= MOVING_AVERAGE_SAMPLES; i++)
   {
