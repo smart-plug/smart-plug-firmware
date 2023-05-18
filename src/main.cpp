@@ -77,9 +77,10 @@ void setup()
   WiFi.softAP(AP_SSID, AP_PASSWORD);
   dns_server.start(DNS_PORT, "*", WiFi.softAPIP());
 
-  if (wifi_ssid) 
-  {
+  if (wifi_ssid) {
     WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
+  } else {
+    WiFi.disconnect();
   }
 
   server.on("/network/info", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -107,7 +108,10 @@ void setup()
     wifi_password = password;
 
     WiFi.disconnect();
-    WiFi.begin(ssid, password);
+
+    if (wifi_ssid) {
+      WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
+    }
     
     request->send(201);
   });
@@ -119,7 +123,7 @@ void setup()
 
     if (n == WIFI_SCAN_NOT_TRIGGERED)
     {
-      WiFi.scanNetworks(true);
+      WiFi.scanNetworks(true, false, true, 100U);
     }
 
     if (n == WIFI_SCAN_NOT_TRIGGERED || n == WIFI_SCAN_RUNNING)
@@ -146,7 +150,7 @@ void setup()
     }
     
     json += "]";
-    
+
     request->send(200, "text/json", json);
     
     json = String();
