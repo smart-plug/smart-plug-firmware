@@ -156,6 +156,10 @@ void setup()
     json = String();
   });
 
+  server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(404);
+  });
+
   server.addHandler(new CaptiveRequestHandler()).setFilter(ON_AP_FILTER);
   server.begin();
 }
