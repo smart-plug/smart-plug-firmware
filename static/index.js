@@ -55,8 +55,6 @@ async function getAvailableNetworks() {
   const endpoint = "/network/scan";
   const url = baseUri + endpoint;
 
-  let completed = false;
-
   let result = await fetch(url);
 
   while (result.status === 202) {
