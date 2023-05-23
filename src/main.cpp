@@ -20,10 +20,6 @@
 
 #define MEASUREMENT_INTERVAL_MS 30000
 
-#define MQTT_MEASUREMENT_TOPIC "smart-plug/measurement"
-#define MQTT_STATUS_TOPIC "smart-plug/status"
-#define MQTT_STATUS_CHANGED_TOPIC "smart-plug/load_change"
-
 #define DNS_PORT 53
 
 #define WIFI_SCAN_NOT_TRIGGERED -2
@@ -45,10 +41,23 @@
 
 #define VOLTAGE 127.00
 
+#define RELAY_PIN 12
+#define BUTTON_PIN 14
+
+#define BUTTON_PRESSED LOW
+#define RELAY_ACTIVE_STATUS HIGH
+
 const char index_html[] PROGMEM = "<!DOCTYPE html><html lang=\"pt\"><head> <meta charset=\"UTF-8\"> <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"> <title>Configurações</title> <link href='https://fonts.googleapis.com/css?family=Roboto Condensed' rel='stylesheet'> <link href='https://fonts.googleapis.com/css?family=Roboto' rel='stylesheet'> <style>*{font-family: \"Roboto\";}.flex-column{display: flex; flex-direction: column;}body{box-sizing: border-box; height: 100vh; width: 100vw; margin: 0; padding: 0 64px; justify-content: space-evenly;}.title{font-family: \"Roboto Condensed\", \"Roboto\"; font-size: 30px; line-height: 30px; letter-spacing: 0.1px; color: #472d68;}.font-xsmall{font-size: 12px; line-height: 16px;}.font-small{font-size: 14px; line-height: 20px;}.font-medium,.input-field{font-size: 16px; line-height: 24px;}.content{gap: 12px;}form{gap: 24px;}.form-group{display: flex; position: relative; border: 1px solid #79747e; border-radius: 4px;}label{position: absolute; top: -8px; left: 16px; color: #49454f; background-color: white; padding: 0 4px;}.form-group:has(.input-field:focus) label{color: #6750a4;}.input-field{flex: 1; border: none; border-radius: 4px; padding: 8px 0px 8px 16px; letter-spacing: 0.5px; color: #1d1b20; background-color: white;}.input-field:focus{outline: 2px solid #6750a4;}.options{box-sizing: border-box; position: absolute; top: 41px; z-index: 1; width: 100%; background: #f3edf7; border-radius: 4px; transition: max-height 0.5s ease;}.options.options-opened{box-shadow: 0px 1px 2px rgba(0, 0, 0, 0.3), 0px 2px 6px 2px rgba(0, 0, 0, 0.15); max-height: 176px; overflow-y: scroll;}.options:not(.options-opened){max-height: 0; overflow: hidden;}.options > *{padding: 16px 12px; cursor: pointer;}.options > *:hover{background-color: #6750a499; color: white;}button{border: none; background: #6750a4; border-radius: 100px; padding: 10px; color: white;}button:focus{opacity: 90%;}span{display: block; color: #49454f; text-align: center;}.card{background: #fef7ff; padding: 12px 16px;}.card > h1{margin: 0; letter-spacing: 0.5px; color: #1d1b20;}.card > p{margin: 0; letter-spacing: 0.25px; color: #49454f;}.overlay{position: absolute; top: 0; left: 0; height: 100vh; width: 100vw; background-color: white; opacity: 0.9; display: flex; align-items: center; justify-content: center;}.loader{border: 8px solid #f3f3f3; border-top: 8px solid #6750a4; border-radius: 50%; width: 40px; height: 40px; animation: spin 2s linear infinite;}@keyframes spin{0%{transform: rotate(0deg);}100%{transform: rotate(360deg);}}</style></head><body class=\"flex-column\"> <h1 class=\"title\">tomada<br>inteligente</h1> <div class=\"flex-column content\"> <form class=\"flex-column\"> <div class=\"form-group\"> <label for=\"ssid\" class=\"font-xsmall\">Rede</label> <input type=\"text\" id=\"ssid\" name=\"ssid\" class=\"input-field\" autocomplete=\"off\" onfocus=\"openSelectOptions('ssid-options')\" onblur=\"closeSelectOptions('ssid-options')\" onkeyup=\"filterOptions()\"/> <div id=\"ssid-options\" class=\"options\"> <div class=\"font-medium\">Procurando...</div></div></div><div class=\"form-group\"> <label for=\"password\" class=\"font-xsmall\">Senha</label> <input type=\"password\" id=\"password\" name=\"password\" class=\"input-field\"/> </div><button type=\"button\" class=\"font-small\" onclick=\"setNetworkConfig()\">Conectar</button> </form> <span class=\"font-xsmall\">Seu dispositivo está <b id=\"status\">desconectado</b>.</span> </div><div class=\"flex-column card\"> <h1 id=\"device-id\" class=\"font-medium\"></h1> <p class=\"font-small\">Utilize este identificador único para cadastro do seu dispositivo na plataforma da <b>tomada inteligente</b>.</p></div><div id=\"loading-container\" class=\"overlay\"> <div class=\"loader\"></div></div><script>const baseUri=\"\";const selectElement=document.getElementById(\"ssid-options\");const ssidElement=document.getElementById(\"ssid\");const passwordElement=document.getElementById(\"password\");const deviceStatusElement=document.getElementById(\"status\");const deviceIdElement=document.getElementById(\"device-id\");const loadingElement=document.getElementById(\"loading-container\");function openSelectOptions(){cleanOptionsFilter(); selectElement.classList.add(\"options-opened\");}function closeSelectOptions(){setTimeout(()=>{selectElement.classList.remove(\"options-opened\");}, 200);}function selectSsid(value){ssidElement.value=value;}function filterOptions(){const value=ssidElement.value.toLowerCase(); const options=selectElement.childNodes; options.forEach(option=>{option.style.display=option.id.toLowerCase().indexOf(value) > -1 ? '' : 'none';});}function cleanOptionsFilter(){const options=selectElement.childNodes; options.forEach(option=>{if (option){if (option.style){option.style.display='';}}});}async function getDeviceInfo(){const endpoint=\"/network/info\"; const url=baseUri + endpoint; const result=await fetch(url); const data=await result.json(); return data;}async function getAvailableNetworks(){const endpoint=\"/network/scan\"; const url=baseUri + endpoint; let completed=false; let result=await fetch(url); while (result.status===202){result=await new Promise((resolve)=>{setTimeout(()=>{resolve(fetch(url));}, 5000);});}const data=await result.json(); return data;}async function setNetworkConfig(){const endpoint=\"/network/configure\"; const url=baseUri + endpoint; const data={ssid: ssidElement.value, password: passwordElement.value,}; const result=await fetch(url,{method: \"POST\", headers:{\"Content-Type\": \"application/json\"}, body: JSON.stringify(data),}); if (result.status===201){loadingElement.style.display=\"flex\"; setTimeout(()=>{location.reload();}, 5000); return;}alert(\"Desculpe, não foi possível configurar a rede!\");}async function onload(){const{id, ipv4, ssid, status}=await getDeviceInfo(); deviceIdElement.innerHTML=id; ssidElement.value=ssid; deviceStatusElement.innerHTML=status ? \"conectado\" : \"desconectado\"; getAvailableNetworks().then((networks)=>{if (!networks.length){return;}networks=networks.sort((a, b)=> b.signal - a.signal); selectElement.innerHTML=\"\"; networks.forEach(({ssid, signal, secure})=>{const option=document.createElement(\"div\"); option.classList.add(\"font-medium\"); option.id=ssid; option.innerHTML=`${ssid} (${signal}%)${secure ? \" *\" : \"\"}`; option.onclick=()=> selectSsid(ssid); selectElement.appendChild(option);});}); loadingElement.style.display=\"none\";}onload();</script></body></html>";
 
 const int ssid_address = EEPROM_START_ADDR;
-const int password_address = EEPROM_START_ADDR + WIFI_SSID_MAX_LENGTH + 1;
+const int password_address = ssid_address + WIFI_SSID_MAX_LENGTH + 1;
+const int relay_status_address = password_address + WIFI_PASSWORD_MAX_LENGTH + 1;
+
+const uint64_t device_id = ESP.getEfuseMac();
+
+const char* mqtt_measurement_topic = "smart-plug/measurement";
+const char* mqtt_status_topic = "smart-plug/status";
+const char* mqtt_change_status_topic = (String("smart-plug/change_status/") + String(device_id)).c_str();
 
 String wifi_ssid;
 String wifi_password;
@@ -65,13 +74,18 @@ TimerHandle_t mqttReconnectTimer;
 TimerHandle_t wifiReconnectTimer;
 TimerHandle_t measureAndPublishTimer;
 
-const uint64_t device_id = ESP.getEfuseMac();
-
 ResponsiveAnalogRead analog(0, true);
 
 uint16_t offset = 0;
 
 const uint32_t period_us = 1000000 / FREQUENCY;
+
+int buttonState;
+int lastButtonState = !BUTTON_PRESSED;
+unsigned int debounceDelay = 50;
+unsigned long lastDebounceTime = 0;
+bool relay_status = !RELAY_ACTIVE_STATUS;
+bool new_relay_status = relay_status;
 
 struct MovingAverage
 {
@@ -151,7 +165,7 @@ void WiFiEvent(WiFiEvent_t event) {
 
 void onMqttConnect(bool sessionPresent) {
   Serial.println("Connected to MQTT");
-  mqttClient.subscribe(MQTT_STATUS_TOPIC, 0);
+  mqttClient.subscribe(mqtt_change_status_topic, 1);
   xTimerStart(measureAndPublishTimer, 0);
 }
 
@@ -166,21 +180,18 @@ void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
 }
 
 void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
-  Serial.println("Publish received.");
-  Serial.print("  topic: ");
-  Serial.println(topic);
-  Serial.print("  qos: ");
-  Serial.println(properties.qos);
-  Serial.print("  dup: ");
-  Serial.println(properties.dup);
-  Serial.print("  retain: ");
-  Serial.println(properties.retain);
-  Serial.print("  len: ");
-  Serial.println(len);
-  Serial.print("  index: ");
-  Serial.println(index);
-  Serial.print("  total: ");
-  Serial.println(total);
+  Serial.print("Message received on ");
+  Serial.print(topic);
+  Serial.print(": ");
+  Serial.println(payload);
+
+  if (strcmp(topic, mqtt_change_status_topic) == 0) {
+    DynamicJsonDocument json(len);
+    deserializeJson(json, payload);
+    if (json.containsKey("state")) {
+      new_relay_status = (bool) json["state"];
+    }
+  }
 }
 
 float movingAverageFilter(struct MovingAverage *data, float newValue) {
@@ -205,6 +216,21 @@ uint16_t getSensorZeroOffset() {
   }
 
   return value / OFFSET_SAMPLES;
+}
+
+void mqttSend(const char* topic, char* buf) {
+  if (!mqttClient.connected()) {
+    return;
+  }
+
+  Serial.print("Sending ");
+  Serial.print(strlen(buf));
+  Serial.println(" bytes to mqtt:");
+  Serial.println(buf);
+  
+  const uint8_t qos = 1;
+  const bool retain = false;
+  mqttClient.publish(topic, qos, retain, buf);
 }
 
 void measureAndPublish() {
@@ -235,25 +261,47 @@ void measureAndPublish() {
 
   char buf[100];
   sprintf(buf, 
-    "{\"device_id\": %llu, \"current\": %.2f, \"voltage\": %.2f, \"timestamp\": %lu}",
+    "{\"device_id\":%llu,\"current\":%.2f,\"voltage\":%.2f,\"timestamp\":%lu}",
     device_id, Ifinal, VOLTAGE, timeClient.getEpochTime());
 
-  Serial.print("Sending ");
-  Serial.print(strlen(buf));
-  Serial.println(" bytes to mqtt:");
-  Serial.println(buf);
-  
-  uint8_t qos = 1;
-  bool retain = false;
-  mqttClient.publish(MQTT_MEASUREMENT_TOPIC, qos, retain, buf);
+  mqttSend(mqtt_measurement_topic, buf);
 }
 
-void setup()
+void buttonInterrupt()
 {
+  if ((millis() - lastDebounceTime) > debounceDelay)
+  {
+    new_relay_status = !relay_status;
+    lastDebounceTime = millis();
+  }
+}
+
+void change_relay_status(bool new_value) {
+  relay_status = new_value;
+
+  digitalWrite(RELAY_PIN, relay_status);
+
+  Serial.print("Relay status changed to: ");
+  Serial.println(relay_status);
+
+  char buf[100];
+  sprintf(buf, "{\"device_id\":%llu,\"state\":%i}", device_id, relay_status);
+  
+  mqttSend(mqtt_status_topic, buf);
+
+  EEPROM.writeBool(relay_status_address, relay_status);
+  EEPROM.commit();
+}
+
+void setup(){
   Serial.begin(115200);
 
   pinMode(SENSOR_PIN, INPUT);
   analog.setAnalogResolution(RESOLUTION + 1);
+
+  pinMode(RELAY_PIN, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), buttonInterrupt, RISING);
 
   cleanMovingAverageHistory(&movingAverage);
 
@@ -365,14 +413,26 @@ void setup()
 
   offset = getSensorZeroOffset();
 
+  relay_status = EEPROM.readBool(relay_status_address);
+  new_relay_status = relay_status;
+  Serial.print("Relay initial state is ");
+  Serial.println(relay_status ? "high" : "low");
+  digitalWrite(RELAY_PIN, relay_status);
+
   connectToWifi();
 }
 
 void loop()
 {
   dns_server.processNextRequest();
+  
   if (WiFi.isConnected()) {
     timeClient.update();
   }
+
+  if (new_relay_status != relay_status) {
+    change_relay_status(new_relay_status);
+  }
+  
   delay(100);
 }
