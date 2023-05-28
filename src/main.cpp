@@ -13,8 +13,10 @@
 #define AP_SSID "tomada-inteligente"
 #define AP_PASSWORD "123457890"
 
-#define MQTT_HOST "192.168.18.245" //"test.mosquitto.org"
+#define MQTT_HOST "20.206.219.247"
 #define MQTT_PORT 1883
+#define MQTT_USER "admin"
+#define MQTT_PASSWD "OTk5NTBjMTUtNzY3NC00NDUyLTkyZjktMmYwYjU5Yzc3M2Yw"
 
 #define NTP_POOL_SERVER "time.google.com"
 
@@ -409,7 +411,10 @@ void setup(){
   mqttClient.onConnect(onMqttConnect);
   mqttClient.onDisconnect(onMqttDisconnect);
   mqttClient.onMessage(onMqttMessage);
+
+  mqttClient.setClientId(String(device_id).c_str());
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  mqttClient.setCredentials(MQTT_USER, MQTT_PASSWD);
 
   offset = getSensorZeroOffset();
 
