@@ -13,7 +13,7 @@
 #define AP_SSID "tomada-inteligente"
 #define AP_PASSWORD "123457890"
 
-#define MQTT_HOST "20.206.219.247"
+#define MQTT_HOST "smart-plug-server.brazilsouth.cloudapp.azure.com"
 #define MQTT_PORT 1883
 #define MQTT_USER "admin"
 #define MQTT_PASSWD "OTk5NTBjMTUtNzY3NC00NDUyLTkyZjktMmYwYjU5Yzc3M2Yw"
@@ -261,10 +261,14 @@ void measureAndPublish() {
 
   float Ifinal = IrmsAverage < ACTIVITY_THRESHOLD ? 0 : IrmsAverage;
 
-  char buf[100];
+  const float power_factor = 1.0;
+
+  float active_power = VOLTAGE * Ifinal;
+
+  char buf[200];
   sprintf(buf, 
-    "{\"device_id\":%llu,\"current\":%.2f,\"voltage\":%.2f,\"timestamp\":%lu}",
-    device_id, Ifinal, VOLTAGE, timeClient.getEpochTime());
+    "{\"device_id\":%llu,\"current\":%.2f,\"voltage\":%.2f,\"active_power\":%.2f,\"power_factor\":%.3f,\"timestamp\":%lu}",
+    device_id, Ifinal, VOLTAGE, active_power, power_factor, timeClient.getEpochTime());
 
   mqttSend(mqtt_measurement_topic, buf);
 }
