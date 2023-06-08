@@ -10,6 +10,8 @@
 #include <ResponsiveAnalogRead.h>
 #include <NTPClient.h>
 
+#define DEBUG false
+
 #define AP_SSID "tomada-inteligente"
 #define AP_PASSWORD "123457890"
 
@@ -20,7 +22,8 @@
 
 #define NTP_POOL_SERVER "time.google.com"
 
-#define MEASUREMENT_INTERVAL_MS 30000
+#define PUBLISH_INTERVAL_MS 10000
+#define MEASURE_INTERVAL_MS 1000
 
 #define DNS_PORT 53
 
@@ -33,7 +36,7 @@
 #define EEPROM_START_ADDR 0
 
 #define SENSOR_PIN 33
-#define OFFSET_SAMPLES 10
+#define OFFSET_SAMPLES 1000
 #define RESOLUTION 4095
 #define VREF 3.3
 #define SENSIBILITY 0.04
@@ -74,7 +77,8 @@ AsyncMqttClient mqttClient;
 
 TimerHandle_t mqttReconnectTimer;
 TimerHandle_t wifiReconnectTimer;
-TimerHandle_t measureAndPublishTimer;
+TimerHandle_t mqttPublishTimer;
+TimerHandle_t currentMeasureTimer;
 
 ResponsiveAnalogRead analog(0, true);
 
@@ -84,7 +88,7 @@ const uint32_t period_us = 1000000 / FREQUENCY;
 
 int buttonState;
 int lastButtonState = !BUTTON_PRESSED;
-unsigned int debounceDelay = 50;
+unsigned int debounceDelay = 100;
 unsigned long lastDebounceTime = 0;
 bool relay_status = !RELAY_ACTIVE_STATUS;
 bool new_relay_status = relay_status;
@@ -128,7 +132,7 @@ uint8_t dBm2quality(int32_t dBm)
 }
 
 void connectToWifi() {
-  Serial.println("Connecting to Wi-Fi...");
+  DEBUG && Serial.println("Connecting to Wi-Fi...");
   if (!wifi_ssid.isEmpty()) {
     WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
   } else {
@@ -137,28 +141,28 @@ void connectToWifi() {
 }
 
 void connectToMqtt() {
-  Serial.println("Connecting to MQTT...");
+  DEBUG && Serial.println("Connecting to MQTT...");
   mqttClient.connect();
 }
 
 void setupNTPClient() {
   timeClient.begin();
-  Serial.println(timeClient.forceUpdate() ? "NTP was updated" : "Could not update NTP!");
+  DEBUG && Serial.println(timeClient.forceUpdate() ? "NTP was updated" : "Could not update NTP!");
 }
 
 void WiFiEvent(WiFiEvent_t event) {
-  Serial.printf("[WiFi-event] event: %d\n", event);
+  DEBUG && Serial.printf("[WiFi-event] event: %d\n", event);
   bool time_updated = false;
   switch(event) {
     case SYSTEM_EVENT_STA_GOT_IP:
-      Serial.println("WiFi connected");
-      Serial.println("IP address: ");
-      Serial.println(WiFi.localIP());
+      DEBUG && Serial.println("WiFi connected");
+      DEBUG && Serial.println("IP address: ");
+      DEBUG && Serial.println(WiFi.localIP());
       connectToMqtt();
       setupNTPClient();
       break;
     case SYSTEM_EVENT_STA_DISCONNECTED:
-      Serial.println("WiFi lost connection");
+      DEBUG && Serial.println("WiFi lost connection");
       xTimerStop(mqttReconnectTimer, 0);
       xTimerStart(wifiReconnectTimer, 0);
       break;
@@ -166,15 +170,15 @@ void WiFiEvent(WiFiEvent_t event) {
 }
 
 void onMqttConnect(bool sessionPresent) {
-  Serial.println("Connected to MQTT");
+  DEBUG && Serial.println("Connected to MQTT");
   mqttClient.subscribe(mqtt_change_status_topic, 1);
-  xTimerStart(measureAndPublishTimer, 0);
+  xTimerStart(mqttPublishTimer, 0);
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
-  Serial.println("Disconnected from MQTT.");
+  DEBUG && Serial.println("Disconnected from MQTT.");
 
-  xTimerStop(measureAndPublishTimer, 0);
+  xTimerStop(mqttPublishTimer, 0);
 
   if (WiFi.isConnected()) {
     xTimerStart(mqttReconnectTimer, 0);
@@ -182,10 +186,10 @@ void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
 }
 
 void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
-  Serial.print("Message received on ");
-  Serial.print(topic);
-  Serial.print(": ");
-  Serial.println(payload);
+  DEBUG && Serial.print("Message received on ");
+  DEBUG && Serial.print(topic);
+  DEBUG && Serial.print(": ");
+  DEBUG && Serial.println(payload);
 
   if (strcmp(topic, mqtt_change_status_topic) == 0) {
     DynamicJsonDocument json(len);
@@ -215,6 +219,7 @@ uint16_t getSensorZeroOffset() {
 
   for (int i = 0; i < OFFSET_SAMPLES; i++) {
     value += analogRead(SENSOR_PIN);
+    delay(1);
   }
 
   return value / OFFSET_SAMPLES;
@@ -225,22 +230,17 @@ void mqttSend(const char* topic, char* buf) {
     return;
   }
 
-  Serial.print("Sending ");
-  Serial.print(strlen(buf));
-  Serial.println(" bytes to mqtt:");
-  Serial.println(buf);
+  DEBUG && Serial.print("Sending ");
+  DEBUG && Serial.print(strlen(buf));
+  DEBUG && Serial.println(" bytes to mqtt:");
+  DEBUG && Serial.println(buf);
   
   const uint8_t qos = 1;
   const bool retain = false;
   mqttClient.publish(topic, qos, retain, buf);
 }
 
-void measureAndPublish() {
-  if (!mqttClient.connected()) {
-    Serial.println("[Measurement] Mqtt not connected");
-    return;
-  }
-
+void measureCurrent() {
   uint32_t Isum = 0, measurements_count = 0;
   int32_t Inow;
 
@@ -259,7 +259,19 @@ void measureAndPublish() {
   float Irms = sqrt(Isum / measurements_count) / RESOLUTION * VREF / SENSIBILITY;
   float IrmsAverage = movingAverageFilter(&movingAverage, Irms);
 
-  float Ifinal = IrmsAverage < ACTIVITY_THRESHOLD ? 0 : IrmsAverage;
+  DEBUG && Serial.print("Measured current: ");
+  DEBUG && Serial.println(IrmsAverage);
+}
+
+void mqttPublishData() {
+  if (!mqttClient.connected()) {
+    DEBUG && Serial.println("[Measurement] Mqtt not connected");
+    return;
+  }
+
+  float IrmsAverage = movingAverage.average;
+
+  float Ifinal = (!relay_status || IrmsAverage < ACTIVITY_THRESHOLD) ? 0 : IrmsAverage;
 
   const float power_factor = 1.0;
 
@@ -287,8 +299,8 @@ void change_relay_status(bool new_value) {
 
   digitalWrite(RELAY_PIN, relay_status);
 
-  Serial.print("Relay status changed to: ");
-  Serial.println(relay_status);
+  DEBUG && Serial.print("Relay status changed to: ");
+  DEBUG && Serial.println(relay_status);
 
   char buf[100];
   sprintf(buf, "{\"device_id\":%llu,\"state\":%i}", device_id, relay_status);
@@ -315,7 +327,7 @@ void setup(){
 
   if (!eeprom_started)
   {
-    Serial.println("Failed to initialise EEPROM!");
+    DEBUG && Serial.println("Failed to initialise EEPROM!");
   }
 
   wifi_ssid = EEPROM.readString(ssid_address);
@@ -408,7 +420,8 @@ void setup(){
 
   mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
   wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
-  measureAndPublishTimer = xTimerCreate("measurementTimer", pdMS_TO_TICKS(MEASUREMENT_INTERVAL_MS), pdTRUE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(measureAndPublish));
+  mqttPublishTimer = xTimerCreate("mqttPublishTimer", pdMS_TO_TICKS(PUBLISH_INTERVAL_MS), pdTRUE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(mqttPublishData));
+  currentMeasureTimer = xTimerCreate("currentMeasureTimer", pdMS_TO_TICKS(MEASURE_INTERVAL_MS), pdTRUE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(measureCurrent));
 
   WiFi.onEvent(WiFiEvent);
 
@@ -421,14 +434,17 @@ void setup(){
   mqttClient.setCredentials(MQTT_USER, MQTT_PASSWD);
 
   offset = getSensorZeroOffset();
+  delay(100);
 
   relay_status = EEPROM.readBool(relay_status_address);
   new_relay_status = relay_status;
-  Serial.print("Relay initial state is ");
-  Serial.println(relay_status ? "high" : "low");
+  DEBUG && Serial.print("Relay initial state is ");
+  DEBUG && Serial.println(relay_status ? "high" : "low");
   digitalWrite(RELAY_PIN, relay_status);
 
   connectToWifi();
+
+  xTimerStart(currentMeasureTimer, pdMS_TO_TICKS(500));
 }
 
 void loop()
